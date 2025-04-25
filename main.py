@@ -1,6 +1,4 @@
-from flask import Flask
-import os
-import json
+import sqlite3
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -12,36 +10,11 @@ from telegram.ext import (
     CallbackQueryHandler,
 )
 
-# ========== KEEP-BOT-ALIVE SERVER ==========
-app = Flask(__name__)
-
-@app.route('/')
-def home():
-    return "🟢 Minecraft Bot is ONLINE 24/7"
-
-# Start web server in background
-import threading
-threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
-
-# ========== APK DATA STORAGE ==========
-apk_file_path = "apk_data.json"
-
-# Load existing data from file
-if os.path.exists(apk_file_path):
-    with open(apk_file_path, "r") as f:
-        apk_files = json.load(f)
-else:
-    apk_files = {}
-
-def save_apk_data():
-    """Save apk files data to a JSON file."""
-    with open(apk_file_path, "w") as f:
-        json.dump(apk_files, f)
-
-# ========== BOT CODE ==========
-BOT_TOKEN = "7526718494:AAGlcmEOyLsPnB8AclKcsujJdnk5oDM5CZA"
+# Config
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 ADMIN_ID = 1254114367
 CHANNEL_USERNAME = "@minecraft_updates"
+DATABASE = "apk_links.db"  # SQLite database file
 
 # Enable logging
 logging.basicConfig(
@@ -50,18 +23,48 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# SQLite helper functions
+def init_db():
+    # Create table to store links if it doesn't exist
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute('''CREATE TABLE IF NOT EXISTS apk_links (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        file_id TEXT NOT NULL,
+                        download_link TEXT NOT NULL)''')
+    conn.commit()
+    conn.close()
+
+def save_apk_link(file_id, download_link):
+    # Save new APK link into the database
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO apk_links (file_id, download_link) VALUES (?, ?)", (file_id, download_link))
+    conn.commit()
+    conn.close()
+
+def get_apk_link(apk_id):
+    # Retrieve APK link from the database by APK ID
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT download_link FROM apk_links WHERE id=?", (apk_id,))
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] if result else None
+
+# Your existing bot code
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if args:
-        apk_id = args[0]
-        if apk_id in apk_files:
-            await check_membership(update, context, apk_id)
+        apk_id = int(args[0])  # Get APK ID
+        download_link = get_apk_link(apk_id)
+        if download_link:
+            await update.message.reply_text(f"✅ Here is your APK link: {download_link}")
         else:
-            await update.message.reply_text("⚠️ Link expired! Ask admin for new one.")
+            await update.message.reply_text("⚠️ Link expired! Ask admin for a new one.")
     else:
         await update.message.reply_text(
-            "👋 Hi! I help download Minecraft APKs\n"
-            "Ask admin for download links!"
+            "👋 Hi! I help download Minecraft APKs\nAsk admin for download links!"
         )
 
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -72,28 +75,38 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     if document.file_name.endswith('.apk'):
         file_id = document.file_id
-        apk_id = str(len(apk_files) + 1)
-        apk_files[apk_id] = file_id
+        apk_id = int(get_next_apk_id())  # Get the next available APK ID
         download_link = f"https://t.me/{context.bot.username}?start={apk_id}"
-
-        # Save data to the JSON file
-        save_apk_data()
-
+        save_apk_link(file_id, download_link)
         await update.message.reply_text(f"✅ Link: {download_link}")
     else:
         await update.message.reply_text("❌ Only .apk files!")
 
-async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, apk_id: str):
+def get_next_apk_id():
+    # Get the next APK ID to assign
+    conn = sqlite3.connect(DATABASE)
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(id) FROM apk_links")
+    result = cursor.fetchone()
+    conn.close()
+    return result[0] + 1 if result[0] else 1
+
+# Bot command to handle verification
+async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, apk_id: int):
     try:
         user_id = update.effective_user.id
         member = await context.bot.get_chat_member(CHANNEL_USERNAME, user_id)
 
         if member.status in ["member", "administrator", "creator"]:
-            await context.bot.send_document(
-                chat_id=update.effective_chat.id,
-                document=apk_files[apk_id],
-                caption="🎮 Your APK is ready! Enjoy!"
-            )
+            # Send the APK file link
+            download_link = get_apk_link(apk_id)
+            if download_link:
+                await context.bot.send_message(
+                    chat_id=update.effective_chat.id,
+                    text=f"🎮 Your APK is ready! Download here: {download_link}"
+                )
+            else:
+                await update.message.reply_text("❌ Link expired.")
         else:
             keyboard = [
                 [InlineKeyboardButton("👉 JOIN CHANNEL", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")],
@@ -110,7 +123,7 @@ async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, a
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
-    apk_id = query.data.split('_')[1]
+    apk_id = int(query.data.split('_')[1])
     await check_membership(update, context, apk_id)
 
 def run_bot():
@@ -121,4 +134,5 @@ def run_bot():
     application.run_polling()
 
 if __name__ == '__main__':
+    init_db()  # Initialize the database on startup
     run_bot()
