@@ -8,11 +8,12 @@ app = Flask(__name__)
 def home():
     return "🟢 Minecraft Bot is ONLINE 24/7"
 
-# Start web server in background
-threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
+threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000)).start()
 
 # ========== YOUR BOT CODE ==========
 import logging
+import os
+import json
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -22,14 +23,23 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
 )
-import os
 
-# ✅ YOUR SETTINGS
 BOT_TOKEN = "7526718494:AAGlcmEOyLsPnB8AclKcsujJdnk5oDM5CZA"
 ADMIN_ID = 1254114367
 CHANNEL_USERNAME = "@minecraft_updates"
+DATA_FILE = "data.json"
 
-apk_files = {}
+# Load saved APKs
+if os.path.exists(DATA_FILE):
+    with open(DATA_FILE, "r") as f:
+        apk_files = json.load(f)
+else:
+    apk_files = {}
+
+# Save function
+def save_apks():
+    with open(DATA_FILE, "w") as f:
+        json.dump(apk_files, f)
 
 # Logging
 logging.basicConfig(
@@ -64,6 +74,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_id = document.file_id
         apk_id = str(len(apk_files) + 1)
         apk_files[apk_id] = file_id
+        save_apks()
         download_link = f"https://t.me/{context.bot.username}?start={apk_id}"
         await update.message.reply_text(f"✅ Link: {download_link}")
     else:
@@ -107,8 +118,8 @@ def run_bot():
     application.add_handler(CommandHandler("start", start))
     application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     application.add_handler(CallbackQueryHandler(button_click))
-    application.run_polling()  # ✅ Polling instead of webhook
+    application.run_polling()
 
-# Run everything
+# Start bot
 if __name__ == '__main__':
     run_bot()
