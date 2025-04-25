@@ -1,103 +1,114 @@
-import os
-from flask import Flask, request
+# ========== KEEP-BOT-ALIVE SERVER ==========
+from flask import Flask
+import threading
+
+app = Flask(__name__)
+
+@app.route('/')
+def home():
+    return "🟢 Minecraft Bot is ONLINE 24/7"
+
+# Start web server in background
+threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
+
+# ========== YOUR BOT CODE ==========
 import logging
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
-    Application, CommandHandler, MessageHandler,
-    CallbackQueryHandler, filters, ContextTypes
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+    CallbackQueryHandler,
 )
+import os
 
-# ——— Config from ENV ———
-BOT_TOKEN        = os.getenv("BOT_TOKEN")
-ADMIN_ID         = int(os.getenv("ADMIN_ID"))
-CHANNEL_USERNAME = os.getenv("CHANNEL_USERNAME")
-PORT             = int(os.getenv("PORT", 8080))
-# Render exposes your service URL here:
-RENDER_URL       = os.getenv("RENDER_EXTERNAL_URL")
+# ✅ YOUR SETTINGS
+BOT_TOKEN = "7526718494:AAGlcmEOyLsPnB8AclKcsujJdnk5oDM5CZA"
+ADMIN_ID = 1254114367
+CHANNEL_USERNAME = "@minecraft_updates"
 
-# ——— Flask App for Webhooks ———
-app = Flask(__name__)
-
-@app.route(f"/{BOT_TOKEN}", methods=["POST"])
-def telegram_webhook():
-    """Receive updates from Telegram and push them into the app’s queue."""
-    update = Update.de_json(request.get_json(force=True), bot)
-    application.update_queue.put(update)
-    return "OK"
-
-@app.route("/")
-def health_check():
-    return "✅ Bot is running!"
-
-# ——— Bot Logic ———
 apk_files = {}
 
-# /start Command
+# Logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
-    if args and args[0] in apk_files:
-        await check_membership(update, context, args[0])
+    if args:
+        apk_id = args[0]
+        if apk_id in apk_files:
+            await check_membership(update, context, apk_id)
+        else:
+            await update.message.reply_text("⚠️ Link expired! Ask admin for new one.")
     else:
         await update.message.reply_text(
-            "👋 Hi! I help download Minecraft APKs.\n"
+            "👋 Hi! I help download Minecraft APKs\n"
             "Ask admin for download links!"
         )
 
-# Handle .apk Uploads from Admin
+# Upload .apk by admin
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_ID:
-        return await update.message.reply_text("❌ Admin only!")
-    doc = update.message.document
-    if doc.file_name.endswith(".apk"):
-        apk_id = str(len(apk_files) + 1)
-        apk_files[apk_id] = doc.file_id
-        link = f"https://{RENDER_URL}/{BOT_TOKEN}?start={apk_id}"
-        await update.message.reply_text(f"✅ Download Link: {link}")
-    else:
-        await update.message.reply_text("❌ Only .apk files allowed.")
+    if update.message.from_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ Admin only!")
+        return
 
-# Membership Check
+    document = update.message.document
+    if document.file_name.endswith('.apk'):
+        file_id = document.file_id
+        apk_id = str(len(apk_files) + 1)
+        apk_files[apk_id] = file_id
+        download_link = f"https://t.me/{context.bot.username}?start={apk_id}"
+        await update.message.reply_text(f"✅ Link: {download_link}")
+    else:
+        await update.message.reply_text("❌ Only .apk files!")
+
+# Membership check
 async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, apk_id: str):
-    user = update.effective_user.id
     try:
-        member = await context.bot.get_chat_member(CHANNEL_USERNAME, user)
-        if member.status in ("member","administrator","creator"):
+        user_id = update.effective_user.id
+        member = await context.bot.get_chat_member(CHANNEL_USERNAME, user_id)
+
+        if member.status in ["member", "administrator", "creator"]:
             await context.bot.send_document(
                 chat_id=update.effective_chat.id,
                 document=apk_files[apk_id],
-                caption="🎮 Here’s your APK!"
+                caption="🎮 Your APK is ready! Enjoy!"
             )
         else:
             keyboard = [
-                [InlineKeyboardButton("Join Channel", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")],
-                [InlineKeyboardButton("Verify", callback_data=f"verify_{apk_id}")]
+                [InlineKeyboardButton("👉 JOIN CHANNEL", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")],
+                [InlineKeyboardButton("✅ VERIFY JOIN", callback_data=f"verify_{apk_id}")]
             ]
             await update.message.reply_text(
-                "📢 Please join the channel first.",
+                "📢 Join channel first!\n1. Join\n2. Verify",
                 reply_markup=InlineKeyboardMarkup(keyboard)
             )
-    except Exception:
-        await update.message.reply_text("❌ Could not verify membership.")
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        await update.message.reply_text("❌ Verification failed")
 
-# Button Callback
+# Button handling
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.callback_query.answer()
-    apk_id = update.callback_query.data.split("_",1)[1]
+    query = update.callback_query
+    await query.answer()
+    apk_id = query.data.split('_')[1]
     await check_membership(update, context, apk_id)
 
-# ——— Build Application ———
-logging.basicConfig(level=logging.INFO)
-application = Application.builder().token(BOT_TOKEN).build()
-bot = application.bot  # for webhook handler
+# Run bot
+def run_bot():
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    application.add_handler(CallbackQueryHandler(button_click))
+    application.run_polling()  # ✅ Polling instead of webhook
 
-application.add_handler(CommandHandler("start", start))
-application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
-application.add_handler(CallbackQueryHandler(button_click))
-
-if __name__ == "__main__":
-    # Set Telegram Webhook to your Render URL
-    webhook_url = f"https://{RENDER_URL}/{BOT_TOKEN}"
-    bot.set_webhook(webhook_url)
-
-    # Start Flask server to receive updates
-    app.run(host="0.0.0.0", port=PORT)
+# Run everything
+if __name__ == '__main__':
+    run_bot()
