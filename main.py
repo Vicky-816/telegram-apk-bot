@@ -1,79 +1,112 @@
-import os
-from flask import Flask, request
-from telegram import Update, Bot
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
-from dotenv import load_dotenv
-import sqlite3
-
-load_dotenv()
-
-TOKEN = os.getenv("BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
-PORT = int(os.getenv("PORT", 8080))
+# ========== KEEP-BOT-ALIVE SERVER ==========
+from flask import Flask
+import threading
 
 app = Flask(__name__)
 
-# Initialize SQLite database
-def init_db():
-    conn = sqlite3.connect("apklinks.db")
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS links
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id TEXT, file_name TEXT)''')
-    conn.commit()
-    conn.close()
+@app.route('/')
+def home():
+    return "🟢 Minecraft Bot is ONLINE 24/7"
 
-init_db()
+# Start web server in background
+threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
 
+# ========== YOUR BOT CODE ==========
+import logging
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes,
+    CallbackQueryHandler,
+)
+
+# 🔒 Config (Hardcoded values)
+BOT_TOKEN = "7526718494:AAGlcmEOyLsPnB8AclKcsujJdnk5oDM5CZA"
+ADMIN_ID = 1254114367
+CHANNEL_USERNAME = "@minecraft_updates"
+apk_files = {}
+
+# Logging
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome! Send me an APK file to get a shareable link.")
+    args = context.args
+    if args:
+        apk_id = args[0]
+        if apk_id in apk_files:
+            await check_membership(update, context, apk_id)
+        else:
+            await update.message.reply_text("⚠️ Link expired! Ask admin for new one.")
+    else:
+        await update.message.reply_text(
+            "👋 Hi! I help download Minecraft APKs\n"
+            "Ask admin for download links!"
+        )
 
-async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    document = update.message.document
-    if not document.mime_type.endswith("vnd.android.package-archive"):
-        await update.message.reply_text("Please upload a valid APK file.")
+# Upload .apk by admin
+async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.message.from_user.id != ADMIN_ID:
+        await update.message.reply_text("❌ Admin only!")
         return
 
-    file = await context.bot.get_file(document.file_id)
-    file_id = document.file_id
-    file_name = document.file_name
+    document = update.message.document
+    if document.file_name.endswith('.apk'):
+        file_id = document.file_id
+        apk_id = str(len(apk_files) + 1)
+        apk_files[apk_id] = file_id
+        download_link = f"https://t.me/{context.bot.username}?start={apk_id}"
+        await update.message.reply_text(f"✅ Link: {download_link}")
+    else:
+        await update.message.reply_text("❌ Only .apk files!")
 
-    # Save to DB
-    conn = sqlite3.connect("apklinks.db")
-    c = conn.cursor()
-    c.execute("INSERT INTO links (file_id, file_name) VALUES (?, ?)", (file_id, file_name))
-    conn.commit()
-    conn.close()
+# Membership check
+async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, apk_id: str):
+    try:
+        user_id = update.effective_user.id
+        member = await context.bot.get_chat_member(CHANNEL_USERNAME, user_id)
 
-    link = f"https://t.me/{context.bot.username}?start=apk_{file_id}"
-    await update.message.reply_text(f"✅ File saved!\nHere is your shareable link:\n{link}")
-
-async def handle_start_param(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if context.args and context.args[0].startswith("apk_"):
-        file_id = context.args[0].replace("apk_", "")
-
-        conn = sqlite3.connect("apklinks.db")
-        c = conn.cursor()
-        c.execute("SELECT file_name FROM links WHERE file_id = ?", (file_id,))
-        result = c.fetchone()
-        conn.close()
-
-        if result:
-            await update.message.reply_document(file_id, filename=result[0])
+        if member.status in ["member", "administrator", "creator"]:
+            await context.bot.send_document(
+                chat_id=update.effective_chat.id,
+                document=apk_files[apk_id],
+                caption="🎮 Your APK is ready! Enjoy!"
+            )
         else:
-            await update.message.reply_text("❌ This APK link is invalid or expired.")
+            keyboard = [
+                [InlineKeyboardButton("👉 JOIN CHANNEL", url=f"https://t.me/{CHANNEL_USERNAME[1:]}")],
+                [InlineKeyboardButton("✅ VERIFY JOIN", callback_data=f"verify_{apk_id}")]
+            ]
+            await update.message.reply_text(
+                "📢 Join channel first!\n1. Join\n2. Verify",
+                reply_markup=InlineKeyboardMarkup(keyboard)
+            )
+    except Exception as e:
+        logger.error(f"Error: {e}")
+        await update.message.reply_text("❌ Verification failed")
 
+# Button handling
+async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    apk_id = query.data.split('_')[1]
+    await check_membership(update, context, apk_id)
+
+# Run bot
 def run_bot():
-    app_bot = ApplicationBuilder().token(TOKEN).build()
+    application = Application.builder().token(BOT_TOKEN).build()
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(MessageHandler(filters.Document.ALL, handle_document))
+    application.add_handler(CallbackQueryHandler(button_click))
+    application.run_polling()
 
-    app_bot.add_handler(CommandHandler("start", handle_start_param))
-    app_bot.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-    app_bot.add_handler(CommandHandler("help", start))
-
-    app_bot.run_polling()
-
-@app.route("/", methods=["GET", "POST"])
-def index():
-    return "Bot is Running!"
-
-if __name__ == "__main__":
+# Run everything
+if __name__ == '__main__':
     run_bot()
