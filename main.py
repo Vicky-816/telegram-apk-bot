@@ -1,7 +1,5 @@
 # ========== KEEP-BOT-ALIVE SERVER ==========
 from flask import Flask
-import threading
-
 app = Flask(__name__)
 
 @app.route('/')
@@ -9,6 +7,7 @@ def home():
     return "🟢 Minecraft Bot is ONLINE 24/7"
 
 # Start web server in background
+import threading
 threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
 
 # ========== YOUR BOT CODE ==========
@@ -22,12 +21,18 @@ from telegram.ext import (
     ContextTypes,
     CallbackQueryHandler,
 )
+from tinydb import TinyDB, Query
+import os
 
-# 🔒 Config (Hardcoded values)
-BOT_TOKEN = "7526718494:AAGlcmEOyLsPnB8AclKcsujJdnk5oDM5CZA"
-ADMIN_ID = 1254114367
+# Config
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID"))
 CHANNEL_USERNAME = "@minecraft_updates"
-apk_files = {}
+
+# Database
+db = TinyDB("apk_files.json")
+apk_table = db.table("apks")
+APK = Query()
 
 # Logging
 logging.basicConfig(
@@ -36,12 +41,13 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# /start command
+# Commands
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
     if args:
         apk_id = args[0]
-        if apk_id in apk_files:
+        result = apk_table.get(APK.apk_id == apk_id)
+        if result:
             await check_membership(update, context, apk_id)
         else:
             await update.message.reply_text("⚠️ Link expired! Ask admin for new one.")
@@ -51,7 +57,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Ask admin for download links!"
         )
 
-# Upload .apk by admin
 async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.message.from_user.id != ADMIN_ID:
         await update.message.reply_text("❌ Admin only!")
@@ -60,23 +65,27 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
     document = update.message.document
     if document.file_name.endswith('.apk'):
         file_id = document.file_id
-        apk_id = str(len(apk_files) + 1)
-        apk_files[apk_id] = file_id
+        apk_id = str(len(apk_table) + 1)
+        apk_table.insert({"apk_id": apk_id, "file_id": file_id})
         download_link = f"https://t.me/{context.bot.username}?start={apk_id}"
         await update.message.reply_text(f"✅ Link: {download_link}")
     else:
         await update.message.reply_text("❌ Only .apk files!")
 
-# Membership check
 async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, apk_id: str):
     try:
         user_id = update.effective_user.id
         member = await context.bot.get_chat_member(CHANNEL_USERNAME, user_id)
+        result = apk_table.get(APK.apk_id == apk_id)
+
+        if not result:
+            await update.message.reply_text("⚠️ Link expired or invalid.")
+            return
 
         if member.status in ["member", "administrator", "creator"]:
             await context.bot.send_document(
                 chat_id=update.effective_chat.id,
-                document=apk_files[apk_id],
+                document=result["file_id"],
                 caption="🎮 Your APK is ready! Enjoy!"
             )
         else:
@@ -92,14 +101,12 @@ async def check_membership(update: Update, context: ContextTypes.DEFAULT_TYPE, a
         logger.error(f"Error: {e}")
         await update.message.reply_text("❌ Verification failed")
 
-# Button handling
 async def button_click(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     apk_id = query.data.split('_')[1]
     await check_membership(update, context, apk_id)
 
-# Run bot
 def run_bot():
     application = Application.builder().token(BOT_TOKEN).build()
     application.add_handler(CommandHandler("start", start))
@@ -107,6 +114,5 @@ def run_bot():
     application.add_handler(CallbackQueryHandler(button_click))
     application.run_polling()
 
-# Run everything
 if __name__ == '__main__':
     run_bot()
