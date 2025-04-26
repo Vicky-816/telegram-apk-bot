@@ -1,6 +1,7 @@
 import logging
 import os
 import json
+import subprocess
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
     Application,
@@ -24,6 +25,7 @@ def home():
 threading.Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
 
 # ========== YOUR BOT CODE ==========
+
 # Logging
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -36,6 +38,12 @@ BOT_TOKEN = "7526718494:AAElsuWjGQIGnuiYOaOA34_fYuVPh92ucwU"
 ADMIN_ID = 1254114367
 CHANNEL_USERNAME = "@minecraft_updates"
 
+# GitHub repository details
+repo_owner = 'Vicky-816'  # Your GitHub username
+repo_name = 'telegram-apk-bot'  # Your repository name
+file_path = 'data.json'  # Path to the data.json file you want to push
+token = 'your_github_pat'  # Replace with your GitHub personal access token
+
 # Initialize apk_files from data.json or an empty dictionary
 try:
     with open("data.json", "r") as file:
@@ -44,6 +52,10 @@ except FileNotFoundError:
     apk_files = {}
 except json.JSONDecodeError:
     apk_files = {}
+
+# Function to push the updated data to GitHub
+def push_to_github():
+    subprocess.run(['python', 'push_to_github.py'])
 
 # /start command
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -75,6 +87,9 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Save updated apk_files to data.json
         with open("data.json", "w") as file:
             json.dump(apk_files, file)
+
+        # Push changes to GitHub
+        push_to_github()
 
         download_link = f"https://t.me/{context.bot.username}?start={apk_id}"
         await update.message.reply_text(f"✅ Link: {download_link}")
