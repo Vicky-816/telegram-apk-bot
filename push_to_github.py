@@ -34,6 +34,10 @@ sha = response.json().get('sha') if response.status_code == 200 else None
 payload = {
     'message': '🔗 Update links in data.json',
     'content': content_encoded,
+    'committer': {
+        'name': 'Your Name',
+        'email': 'your-email@example.com'
+    }
 }
 if sha:
     payload['sha'] = sha

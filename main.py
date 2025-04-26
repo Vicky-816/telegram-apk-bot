@@ -14,7 +14,7 @@ from telegram.ext import (
 from flask import Flask
 import threading
 
-# ========== KEEP-BOT-ALIVE SERVER ==========
+# ========== KEEP-BOT-ALIVE SERVER ========== 
 app = Flask(__name__)
 
 @app.route('/')
@@ -86,7 +86,7 @@ async def handle_document(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         # Save updated apk_files to data.json
         with open("data.json", "w") as file:
-            json.dump(apk_files, file)
+            json.dump(apk_files, file, indent=2)
 
         # Push changes to GitHub
         push_to_github()
