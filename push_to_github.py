@@ -35,8 +35,8 @@ payload = {
     'message': '🔗 Update links in data.json',
     'content': content_encoded,
     'committer': {
-        'name': 'Your Name',
-        'email': 'your-email@example.com'
+        'name': 'Vicky-816',
+        'email': 'vicky7165u@gmail.com'
     }
 }
 if sha:

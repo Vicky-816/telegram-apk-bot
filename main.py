@@ -14,7 +14,7 @@ from telegram.ext import (
 from flask import Flask
 import threading
 
-# ========== KEEP-BOT-ALIVE SERVER ========== 
+# ========== KEEP-BOT-ALIVE SERVER ==========
 app = Flask(__name__)
 
 @app.route('/')
@@ -39,18 +39,15 @@ ADMIN_ID = 1254114367
 CHANNEL_USERNAME = "@minecraft_updates"
 
 # GitHub repository details
-repo_owner = 'Vicky-816'  # Your GitHub username
-repo_name = 'telegram-apk-bot'  # Your repository name
-file_path = 'data.json'  # Path to the data.json file you want to push
-token = 'your_github_pat'  # Replace with your GitHub personal access token
+repo_owner = 'Vicky-816'
+repo_name = 'telegram-apk-bot'
+file_path = 'data.json'
 
 # Initialize apk_files from data.json or an empty dictionary
 try:
     with open("data.json", "r") as file:
         apk_files = json.load(file)
-except FileNotFoundError:
-    apk_files = {}
-except json.JSONDecodeError:
+except (FileNotFoundError, json.JSONDecodeError):
     apk_files = {}
 
 # Function to push the updated data to GitHub
