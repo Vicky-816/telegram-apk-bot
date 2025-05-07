@@ -2,7 +2,9 @@
   "1": {
     "file_id": "BQACAgUAAxkBAAICumgbabJdnrEHpcMs_O8VZjYYhIMPAALvEwACrVOxV1iWASD9dAtmNgQ",
     "file_name": "minecraft-1-21-72-music",
-    "tags": [],
+    "tags": [
+      "patch"
+    ],
     "original_url": "https://t.me/minecraft_apk_downloadbot?start=1",
     "short_url": "https://t.me/minecraft_apk_downloadbot?start=1"
   },
